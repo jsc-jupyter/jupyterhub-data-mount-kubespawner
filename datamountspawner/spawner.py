@@ -286,6 +286,15 @@ class DataMountKubeSpawner(OrigKubeSpawner):
                 }
             )
 
+        if self.logging_config:
+            volume_mounts.append(
+                {
+                    "name": "mounts-config",
+                    "mountPath": "/mnt/config/logging.json",
+                    "subPath": "logging.json",
+                }
+            )
+
         extra_data_mount_container = {
             "image": self.data_mounts_image,
             "imagePullPolicy": "Always",
