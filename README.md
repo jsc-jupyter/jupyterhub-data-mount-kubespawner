@@ -7,3 +7,28 @@ JupyterHub Spawner to start a JupyterLab using the [JupyterLab DataMount Extensi
 
 ![JupyterLab](https://jsc-jupyter.github.io/jupyterlab-data-mount/images/jupyterlab.png)
   
+## Installation
+
+Example configuration for [Zero2JupyterHub](https://z2jh.jupyter.org/en/stable/):  
+
+```yaml
+hub:
+  args:
+    - -c
+    - >-
+      pip install jupyterhub-datamountspawner &&
+      jupyterhub -f /usr/local/etc/jupyterhub/jupyterhub_config.py
+  command:
+    - /bin/bash
+  extraConfig:
+    customConfig: |
+      c.JupyterHub.spawner_class = 'datamountspawner.KubeSpawner'
+singleuser:
+  image:
+    name: jupyter/minimal-notebook
+    tag: latest
+  storage:
+    type: none
+```
+
+Checkout [documentation](https://jsc-jupyter.github.io/jupyterlab-data-mount/spawner/installation/) for more.
