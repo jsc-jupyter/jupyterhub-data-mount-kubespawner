@@ -4,6 +4,7 @@ import json
 from kubespawner import KubeSpawner as OrigKubeSpawner
 from traitlets import Callable
 from traitlets import default
+from traitlets import Dict
 from traitlets import List
 from traitlets import observe
 from traitlets import Unicode
@@ -27,48 +28,101 @@ class DataMountKubeSpawner(OrigKubeSpawner):
 
     init_mounts = List(
         [],
+        config=True,
         help="""
-      List of dictionaries representing additional mounts to be added to the pod. 
-      
-      This may be a coroutine.
+          List of dictionaries representing additional mounts to be added to the pod. 
+          
+          This may be a coroutine.
 
-      Example::
-      
-        c.KubeSpawner.init_mounts = [
-        {
-          "path": "aws",
-          "options": {
-          "displayName": "AWS #1",
-          "template": "aws",
-          "config": {
-            "remotepath": "bucketname",
-            "type": "s3",
-            "provider": "AWS",
-            "access_key_id": "_id_",
-            "secret_access_key": "_secret_",
-            "region": "eu-north-1"
-          }
-          }
-        },
-        {
-          "path": "b2drop",
-          "options": {
-          "displayName": "B2Drop",
-          "template": "b2drop",
-          "readonly": true,
-          "config": {
-            "remotepath": "/",
-            "type": "webdav",
-            "url": "https://b2drop.eudat.eu/remote.php/webdav/",
-            "vendor": "nextcloud",
-            "user": "_user_",
-            "obscure_pass": "_password_"
-          }
-          }
+          Example::
+          
+            c.KubeSpawner.init_mounts = [
+              {
+                "path": "aws",
+                "options": {
+                "displayName": "AWS #1",
+                "template": "aws",
+                "config": {
+                  "remotepath": "bucketname",
+                  "type": "s3",
+                  "provider": "AWS",
+                  "access_key_id": "_id_",
+                  "secret_access_key": "_secret_",
+                  "region": "eu-north-1"
+                }
+                }
+              },
+              {
+                "path": "b2drop",
+                "options": {
+                "displayName": "B2Drop",
+                "template": "b2drop",
+                "readonly": true,
+                "config": {
+                  "remotepath": "/",
+                  "type": "webdav",
+                  "url": "https://b2drop.eudat.eu/remote.php/dav/files/_user_/",
+                  "vendor": "nextcloud",
+                  "user": "_user_",
+                  "obscure_pass": "_password_"
+                }
+              }
+            ]
+        """,
+    )
+
+    logging_config = Dict(
+        None,
+        allow_none=True,
+        config=True,
+        help="""
+        Add logging handler to the DataMount sidecar container.
+        Stream and File are enabled by default.
+        Example::
+        
+          logging_config = {
+            "stream": {
+              "enabled": True,
+              "level": 10,
+              "formatter": "simple",
+              "stream": "ext://sys.stdout",
+            },
+            "file": {
+                "enabled": True,
+                "level": 20,
+                "filename": "/mnt/data_mounts/mount.log",
+                "formatter": "simple_user", # simple_user, simple or json
+                "when": "h",
+                "interval": 1,
+                "backupCount": 0,
+                "encoding": None,
+                "delay": false,
+                "utc": false,
+                "atTime": None,
+                "errors": None,
+            },
+            "syslog": {
+              "enabled": False,
+              "level": 20,
+              "formatter": "json",
+              "address": ["ip", 5141],
+              "facility": 1,
+              "socktype": "ext://socket.SOCK_DGRAM",
+            },
+            "smtp": {
+              "enabled": False,
+              "level": 50,
+              "formatter": "simple",
+              "mailhost": "mailhost",
+              "fromaddr": "smtpmail",
+              "toaddrs": [],
+              "subject": "SMTPHandler - Log",
+              "secure": None,
+              "timeout": 1,
+            }
         }
-        ]
-    """,
-    ).tag(config=True)
+      """,
+    )
 
     def get_env(self):
         env = super().get_env()
@@ -84,7 +138,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
     def get_default_volumes(self):
         ret = [
             {"name": "data-mounts", "emptyDir": {}},
-            {"name": "init-mounts", "emptyDir": {}},
+            {"name": "mounts-config", "emptyDir": {}},
         ]
         return ret
 
@@ -144,37 +198,48 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         self.volume_mounts = new_volume_mounts
 
     data_mounts_image = Unicode(
-        "jupyterjsc/jupyterlab-data-mount-api:v0.1.4",
+        "jupyterjsc/jupyterlab-data-mount-api:latest",
         config=True,
         help="Image to use for the data mount container",
     )
 
     def _get_extra_data_mount_init_container(self):
-        if not self.init_mounts:
-            return None
-        try:
-            mounts_b64 = base64.b64encode(
-                json.dumps(self.init_mounts).encode()
-            ).decode()
-            return {
-                "image": "alpine:latest",
-                "imagePullPolicy": "Always",
-                "name": "init-mounts",
-                "volumeMounts": [
-                    {
-                        "name": "init-mounts",
-                        "mountPath": "/mnt/init_mounts",
-                    }
-                ],
-                "command": [
-                    "sh",
-                    "-c",
-                    "apk add --no-cache coreutils && echo '%s' | base64 -d > /mnt/init_mounts/mounts.json"
-                    % mounts_b64,
-                ],
-            }
-        except Exception as e:
-            self.log.exception("wtf")
+        if self.init_mounts or self.logging_config:
+            try:
+                commands = ["apk add --no-cache coreutils"]
+
+                if self.init_mounts:
+                    mounts_b64 = base64.b64encode(
+                        json.dumps(self.init_mounts).encode()
+                    ).decode()
+                    commands.append(
+                        f"echo '{mounts_b64}' | base64 -d > /mnt/config/mounts.json"
+                    )
+
+                if self.logging_config:
+                    logging_config_b64 = base64.b64encode(
+                        json.dumps(self.logging_config).encode()
+                    ).decode()
+                    commands.append(
+                        f"echo '{logging_config_b64}' | base64 -d > /mnt/config/logging.json"
+                    )
+
+                return {
+                    "image": "alpine:latest",
+                    "imagePullPolicy": "Always",
+                    "name": "mounts-config",
+                    "volumeMounts": [
+                        {
+                            "name": "mounts-config",
+                            "mountPath": "/mnt/config",
+                        }
+                    ],
+                    "command": ["sh", "-c", " && ".join(commands)],
+                }
+            except Exception as e:
+                self.log.exception("Could not set init Container")
+                return None
+        else:
             return None
 
     @default("init_containers")
@@ -215,8 +280,8 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         if self.init_mounts:
             volume_mounts.append(
                 {
-                    "name": "init-mounts",
-                    "mountPath": "/mnt/init_mounts/mounts.json",
+                    "name": "mounts-config",
+                    "mountPath": "/mnt/config/mounts.json",
                     "subPath": "mounts.json",
                 }
             )
