@@ -46,7 +46,7 @@ profile = "black"
 github_url = "https://github.com/jsc-jupyter/jupyterhub-data-mount-kubespawner"
 
 [tool.tbump.version]
-current = "0.1.1"
+current = "0.1.2"
 regex = '''
   (?P<major>\d+)
   \.
