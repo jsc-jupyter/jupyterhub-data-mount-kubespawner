@@ -156,18 +156,21 @@ class DataMountKubeSpawner(OrigKubeSpawner):
 
     def get_env(self):
         env = super().get_env()
-        env["JUPYTERLAB_DATA_MOUNT_ENABLED"] = str(self.enabled)
-        env["JUPYTERLAB_DATA_MOUNT_DIR"] = self.data_mount_path
-        templates = self.get_templates()
-        if templates:
-            env["JUPYTERLAB_DATA_MOUNT_TEMPLATES"] = ",".join(templates)
+        if self.enabled:
+            env["JUPYTERLAB_DATA_MOUNT_ENABLED"] = str(self.enabled)
+            env["JUPYTERLAB_DATA_MOUNT_DIR"] = self.data_mount_path
+            templates = self.get_templates()
+            if templates:
+                env["JUPYTERLAB_DATA_MOUNT_TEMPLATES"] = ",".join(templates)
         return env
 
     def get_default_volumes(self):
-        ret = [
-            {"name": "data-mounts", "emptyDir": {}},
-            {"name": "mounts-config", "emptyDir": {}},
-        ]
+        ret = []
+        if self.enabled:
+            ret = [
+                {"name": "data-mounts", "emptyDir": {}},
+                {"name": "mounts-config", "emptyDir": {}},
+            ]
         return ret
 
     @default("volumes")
@@ -177,18 +180,21 @@ class DataMountKubeSpawner(OrigKubeSpawner):
 
     @observe("volumes")
     def _ensure_default_volumes(self, change):
-        new_volumes = change["new"]
-
         try:
+            new_volumes = change["new"]
+
             if isinstance(new_volumes, dict):
                 new_volumes = [new_volumes]
 
-            default_volumes = self.get_default_volumes()
-            if default_volumes and default_volumes not in new_volumes:
-                new_volumes.extend(default_volumes)
+            if self.enabled:
+                default_volumes = self.get_default_volumes()
+                if default_volumes:
+                    for v in default_volumes:
+                        if v not in new_volumes:
+                            new_volumes.append(v)
 
             self.volumes = new_volumes
-        except:
+        except Exception:
             self.log.exception("Ensure volumes failed")
 
     data_mount_path = Unicode(
@@ -198,30 +204,44 @@ class DataMountKubeSpawner(OrigKubeSpawner):
     )
 
     def get_default_volume_mounts(self):
-        return {
-            "name": "data-mounts",
-            "mountPath": self.data_mount_path,
-            "mountPropagation": "HostToContainer",
-        }
+        if self.enabled:
+            return {
+                "name": "data-mounts",
+                "mountPath": self.data_mount_path,
+                "mountPropagation": "HostToContainer",
+            }
+        else:
+            return None
 
     @default("volume_mounts")
     def _default_volumes_mounts(self):
         """Provide default volumes when none are set."""
-        return [self.get_default_volume_mounts()]
+        ret = self.get_default_volume_mounts()
+        if ret:
+            return [ret]
+        else:
+            return []
 
     @observe("volume_mounts")
     def _ensure_default_volume_mounts(self, change):
-        new_volume_mounts = change["new"]
+        try:
+            new_volume_mounts = change["new"]
 
-        if isinstance(new_volume_mounts, dict):
-            new_volume_mounts = [new_volume_mounts]
+            if isinstance(new_volume_mounts, dict):
+                new_volume_mounts = [new_volume_mounts]
 
-        default_volume_mounts = self.get_default_volume_mounts()
+            if self.enabled:
+                default_volume_mounts = self.get_default_volume_mounts()
+                if default_volume_mounts:
+                    if isinstance(default_volume_mounts, dict):
+                        default_volume_mounts = [default_volume_mounts]
+                    for m in default_volume_mounts:
+                        if m not in new_volume_mounts:
+                            new_volume_mounts.append(m)
 
-        if default_volume_mounts and default_volume_mounts not in new_volume_mounts:
-            new_volume_mounts.append(default_volume_mounts)
-
-        self.volume_mounts = new_volume_mounts
+            self.volume_mounts = new_volume_mounts
+        except Exception:
+            self.log.exception("Ensure volume_mounts failed")
 
     data_mounts_image = Unicode(
         "jupyterjsc/jupyterlab-data-mount-api:latest",
@@ -230,7 +250,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
     )
 
     def _get_extra_data_mount_init_container(self):
-        if self.init_mounts or self.logging_config:
+        if (self.init_mounts or self.logging_config) and self.enabled:
             try:
                 commands = ["apk add --no-cache coreutils"]
 
@@ -279,85 +299,103 @@ class DataMountKubeSpawner(OrigKubeSpawner):
 
     @observe("init_containers")
     def _ensure_default_init_containers(self, change):
-        new_init_containers = change["new"]
+        try:
+            new_init_containers = change["new"]
 
-        if isinstance(new_init_containers, dict):
-            new_init_containers = [new_init_containers]
+            if isinstance(new_init_containers, dict):
+                new_init_containers = [new_init_containers]
 
-        extra_data_mount_init_container = self._get_extra_data_mount_init_container()
+            if self.enabled:
+                extra_data_mount_init_container = (
+                    self._get_extra_data_mount_init_container()
+                )
+                if (
+                    extra_data_mount_init_container
+                    and extra_data_mount_init_container not in new_init_containers
+                ):
+                    new_init_containers.append(extra_data_mount_init_container)
 
-        if (
-            extra_data_mount_init_container
-            and extra_data_mount_init_container not in new_init_containers
-        ):
-            new_init_containers.append(extra_data_mount_init_container)
-
-        self.init_containers = new_init_containers
+            self.init_containers = new_init_containers
+        except Exception:
+            self.log.exception("Ensure init_containers failed")
 
     def _get_extra_data_mount_container(self):
-        volume_mounts = [
-            {
+        extra_data_mount_container = {}
+        if self.enabled:
+            volume_mounts = [
+                {
+                    "name": "data-mounts",
+                    "mountPath": "/mnt/data_mounts",
+                    "mountPropagation": "Bidirectional",
+                }
+            ]
+            if self.init_mounts:
+                volume_mounts.append(
+                    {
+                        "name": "mounts-config",
+                        "mountPath": "/mnt/config/mounts.json",
+                        "subPath": "mounts.json",
+                    }
+                )
+
+            if self.logging_config:
+                volume_mounts.append(
+                    {
+                        "name": "mounts-config",
+                        "mountPath": "/mnt/config/logging.json",
+                        "subPath": "logging.json",
+                    }
+                )
+
+            extra_data_mount_container = {
+                "image": self.data_mounts_image,
+                "imagePullPolicy": "Always",
                 "name": "data-mounts",
-                "mountPath": "/mnt/data_mounts",
-                "mountPropagation": "Bidirectional",
+                "volumeMounts": volume_mounts,
+                "securityContext": {
+                    "capabilities": {"add": ["SYS_ADMIN", "MKNOD", "SETFCAP"]},
+                    "privileged": True,
+                    "allowPrivilegeEscalation": True,
+                },
             }
-        ]
-        if self.init_mounts:
-            volume_mounts.append(
-                {
-                    "name": "mounts-config",
-                    "mountPath": "/mnt/config/mounts.json",
-                    "subPath": "mounts.json",
-                }
-            )
-
-        if self.logging_config:
-            volume_mounts.append(
-                {
-                    "name": "mounts-config",
-                    "mountPath": "/mnt/config/logging.json",
-                    "subPath": "logging.json",
-                }
-            )
-
-        extra_data_mount_container = {
-            "image": self.data_mounts_image,
-            "imagePullPolicy": "Always",
-            "name": "data-mounts",
-            "volumeMounts": volume_mounts,
-            "securityContext": {
-                "capabilities": {"add": ["SYS_ADMIN", "MKNOD", "SETFCAP"]},
-                "privileged": True,
-                "allowPrivilegeEscalation": True,
-            },
-        }
         return extra_data_mount_container
 
     @default("extra_containers")
     def _default_extra_containers(self):
         """Provide default volumes when none are set."""
-        return [self._get_extra_data_mount_container()]
+        ret = self._get_extra_data_mount_container()
+        if ret:
+            return [ret]
+        else:
+            return []
 
     @observe("extra_containers")
     def _ensure_default_extra_containers(self, change):
-        new_extra_containers = change["new"]
+        try:
+            new_extra_containers = change["new"]
 
-        if isinstance(new_extra_containers, dict):
-            new_extra_containers = [new_extra_containers]
+            if isinstance(new_extra_containers, dict):
+                new_extra_containers = [new_extra_containers]
 
-        extra_data_mount_container = self._get_extra_data_mount_container()
+            if self.enabled:
+                extra_data_mount_container = self._get_extra_data_mount_container()
 
-        if (
-            extra_data_mount_container
-            and extra_data_mount_container not in new_extra_containers
-        ):
-            new_extra_containers.append(extra_data_mount_container)
+                if (
+                    extra_data_mount_container
+                    and extra_data_mount_container not in new_extra_containers
+                ):
+                    new_extra_containers.append(extra_data_mount_container)
 
-        self.extra_containers = new_extra_containers
+            self.extra_containers = new_extra_containers
+        except Exception:
+            self.log.exception("Ensure extra_containers failed")
 
     @default("cmd")
     def _default_cmd(self):
         """Set the default command if none is provided."""
+        if not self.enabled:
+            return ["jupyterhub-singleuser"]
+
         version = (
             f"=={self.data_mount_extension_version}"
             if self.data_mount_extension_version
@@ -408,7 +446,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         if new_cmd is None or not isinstance(new_cmd, list) or len(new_cmd) == 0:
             # Apply default if cmd is unset or empty
             self.cmd = self._default_cmd()
-        else:
+        elif self.enabled:
             # Otherwise, modify the existing command
             self.cmd = [
                 "sh",
