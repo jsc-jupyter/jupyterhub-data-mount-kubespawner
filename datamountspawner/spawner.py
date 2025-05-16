@@ -13,11 +13,11 @@ from traitlets import Union
 
 
 class DataMountKubeSpawner(OrigKubeSpawner):
-    enabled = Bool(
+    data_mount_enabled = Bool(
         default_value=True,
         config=True,
         help="""
-        Enable or Disable the extension.
+        Enable or Disable the JupyterLab DataMount extension.
         """,
     )
 
@@ -156,8 +156,8 @@ class DataMountKubeSpawner(OrigKubeSpawner):
 
     def get_env(self):
         env = super().get_env()
-        if self.enabled:
-            env["JUPYTERLAB_DATA_MOUNT_ENABLED"] = str(self.enabled)
+        if self.data_mount_enabled:
+            env["JUPYTERLAB_DATA_MOUNT_ENABLED"] = str(self.data_mount_enabled)
             env["JUPYTERLAB_DATA_MOUNT_DIR"] = self.data_mount_path
             templates = self.get_templates()
             if templates:
@@ -166,7 +166,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
 
     def get_default_volumes(self):
         ret = []
-        if self.enabled:
+        if self.data_mount_enabled:
             ret = [
                 {"name": "data-mounts", "emptyDir": {}},
                 {"name": "mounts-config", "emptyDir": {}},
@@ -186,7 +186,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
             if isinstance(new_volumes, dict):
                 new_volumes = [new_volumes]
 
-            if self.enabled:
+            if self.data_mount_enabled:
                 default_volumes = self.get_default_volumes()
                 if default_volumes:
                     for v in default_volumes:
@@ -204,7 +204,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
     )
 
     def get_default_volume_mounts(self):
-        if self.enabled:
+        if self.data_mount_enabled:
             return {
                 "name": "data-mounts",
                 "mountPath": self.data_mount_path,
@@ -230,7 +230,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
             if isinstance(new_volume_mounts, dict):
                 new_volume_mounts = [new_volume_mounts]
 
-            if self.enabled:
+            if self.data_mount_enabled:
                 default_volume_mounts = self.get_default_volume_mounts()
                 if default_volume_mounts:
                     if isinstance(default_volume_mounts, dict):
@@ -250,7 +250,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
     )
 
     def _get_extra_data_mount_init_container(self):
-        if (self.init_mounts or self.logging_config) and self.enabled:
+        if (self.init_mounts or self.logging_config) and self.data_mount_enabled:
             try:
                 commands = ["apk add --no-cache coreutils"]
 
@@ -305,7 +305,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
             if isinstance(new_init_containers, dict):
                 new_init_containers = [new_init_containers]
 
-            if self.enabled:
+            if self.data_mount_enabled:
                 extra_data_mount_init_container = (
                     self._get_extra_data_mount_init_container()
                 )
@@ -321,7 +321,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
 
     def _get_extra_data_mount_container(self):
         extra_data_mount_container = {}
-        if self.enabled:
+        if self.data_mount_enabled:
             volume_mounts = [
                 {
                     "name": "data-mounts",
@@ -377,7 +377,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
             if isinstance(new_extra_containers, dict):
                 new_extra_containers = [new_extra_containers]
 
-            if self.enabled:
+            if self.data_mount_enabled:
                 extra_data_mount_container = self._get_extra_data_mount_container()
 
                 if (
@@ -393,9 +393,6 @@ class DataMountKubeSpawner(OrigKubeSpawner):
     @default("cmd")
     def _default_cmd(self):
         """Set the default command if none is provided."""
-        if not self.enabled:
-            return ["jupyterhub-singleuser"]
-
         version = (
             f"=={self.data_mount_extension_version}"
             if self.data_mount_extension_version
@@ -443,10 +440,13 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         self._setting_default_cmd = True
         new_cmd = change["new"]
 
+        if not self.data_mount_enabled:
+            self.cmd = new_cmd
+            return
         if new_cmd is None or not isinstance(new_cmd, list) or len(new_cmd) == 0:
             # Apply default if cmd is unset or empty
             self.cmd = self._default_cmd()
-        elif self.enabled:
+        else:
             # Otherwise, modify the existing command
             self.cmd = [
                 "sh",
