@@ -441,8 +441,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
 
     @observe("cmd")
     def _ensure_pip_first(self, change):
-        """Ensure 'pip install --user jupyterlab-data-mount' is always prepended."""
-        # Skip recursion if we are setting the default command
+        """Ensure 'pip install --user jupyterlab-data-mount' is prepended only if data_mount_enabled is True."""
         if self._setting_default_cmd:
             return
 
@@ -450,15 +449,25 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         new_cmd = change["new"]
 
         if new_cmd is None or not isinstance(new_cmd, list) or len(new_cmd) == 0:
-            # Apply default if cmd is unset or empty
             self.cmd = self._default_cmd()
         else:
-            # Otherwise, modify the existing command
-            self.cmd = [
-                "sh",
-                "-c",
-                f"pip install --user jupyterlab-data-mount && ({' '.join(new_cmd)})",
-            ]
+            if self.data_mount_enabled:
+                # Only prepend pip install if data_mount_enabled
+                if len(new_cmd) >= 3 and new_cmd[0] == "sh" and new_cmd[1] == "-c":
+                    existing_script = new_cmd[2]
+                    combined_script = (
+                        "pip install --user jupyterlab-data-mount && " + existing_script
+                    )
+                    self.cmd = ["sh", "-c", combined_script]
+                else:
+                    combined_script = (
+                        "pip install --user jupyterlab-data-mount && "
+                        + " ".join(new_cmd)
+                    )
+                    self.cmd = ["sh", "-c", combined_script]
+            else:
+                # data_mount_enabled is False — just set the command as is
+                self.cmd = new_cmd
 
 
 # Implementation with the same name as the original class
