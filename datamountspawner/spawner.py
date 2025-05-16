@@ -393,6 +393,19 @@ class DataMountKubeSpawner(OrigKubeSpawner):
     @default("cmd")
     def _default_cmd(self):
         """Set the default command if none is provided."""
+        base_cmd = ["sh", "-c"]
+
+        if not self.data_mount_enabled:
+            return base_cmd + [
+                """
+                if command -v start-singleuser.sh > /dev/null; then
+                    exec start-singleuser.sh;
+                else
+                    exec jupyterhub-singleuser;
+                fi
+                """
+            ]
+
         version = (
             f"=={self.data_mount_extension_version}"
             if self.data_mount_extension_version
@@ -409,12 +422,9 @@ class DataMountKubeSpawner(OrigKubeSpawner):
             echo '{data_mount_config_b64}' | base64 -d > /tmp/data_mount_config/jupyter_notebook_config.py && \
             """
 
-        base_cmd = [
-            "sh",
-            "-c",
-            f"""
+        full_cmd = f"""
             if command -v pip > /dev/null; then \
-                pip install --user jupyterlab-data-mount{version};
+                pip install --user jupyterlab-data-mount{version}; \
             fi && \
             {write_config_cmd}
             export JUPYTER_CONFIG_PATH="${{JUPYTER_CONFIG_PATH:+$JUPYTER_CONFIG_PATH:}}/tmp/data_mount_config" && \
@@ -423,10 +433,9 @@ class DataMountKubeSpawner(OrigKubeSpawner):
             else \
                 exec jupyterhub-singleuser; \
             fi
-            """,
-        ]
+        """
 
-        return base_cmd
+        return base_cmd + [full_cmd]
 
     _setting_default_cmd = False
 
@@ -440,9 +449,6 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         self._setting_default_cmd = True
         new_cmd = change["new"]
 
-        if not self.data_mount_enabled:
-            self.cmd = new_cmd
-            return
         if new_cmd is None or not isinstance(new_cmd, list) or len(new_cmd) == 0:
             # Apply default if cmd is unset or empty
             self.cmd = self._default_cmd()
