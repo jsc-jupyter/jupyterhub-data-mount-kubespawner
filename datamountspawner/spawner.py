@@ -459,7 +459,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
                     combined_script = pip_cmd + existing_script
                     self.cmd = ["sh", "-c", combined_script]
                 else:
-                    combined_script = pip_check_prefix + " ".join(new_cmd)
+                    combined_script = pip_cmd + " ".join(new_cmd)
                     self.cmd = ["sh", "-c", combined_script]
             else:
                 # data_mount_enabled is False — just set the command as is
