@@ -421,11 +421,11 @@ class DataMountKubeSpawner(OrigKubeSpawner):
             mkdir -p /tmp/data_mount_config && \
             echo '{data_mount_config_b64}' | base64 -d > /tmp/data_mount_config/jupyter_notebook_config.py && \
             """
-
+        pip_cmd = "{ command -v pip >/dev/null 2>&1 && pip install --user jupyterlab-data-mount{version}; }; ".replace(
+            "{version}", version
+        )
         full_cmd = f"""
-            if command -v pip > /dev/null; then \
-                pip install --user jupyterlab-data-mount{version}; \
-            fi && \
+            {pip_cmd} \
             {write_config_cmd}
             export JUPYTER_CONFIG_PATH="${{JUPYTER_CONFIG_PATH:+$JUPYTER_CONFIG_PATH:}}/tmp/data_mount_config" && \
             if command -v start-singleuser.sh > /dev/null; then \
@@ -453,7 +453,14 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         else:
             if self.data_mount_enabled:
                 # Only prepend pip install if data_mount_enabled
-                pip_cmd = "command -v pip >/dev/null 2>&1 && pip install --user jupyterlab-data-mount && "
+                version = (
+                    f"=={self.data_mount_extension_version}"
+                    if self.data_mount_extension_version
+                    else ""
+                )
+                pip_cmd = "{ command -v pip >/dev/null 2>&1 && pip install --user jupyterlab-data-mount{version}; }; ".replace(
+                    "{version}", version
+                )
                 if len(new_cmd) >= 3 and new_cmd[0] == "sh" and new_cmd[1] == "-c":
                     existing_script = new_cmd[2]
                     combined_script = pip_cmd + existing_script
