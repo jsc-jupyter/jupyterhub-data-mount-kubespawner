@@ -453,17 +453,13 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         else:
             if self.data_mount_enabled:
                 # Only prepend pip install if data_mount_enabled
+                pip_cmd = "command -v pip >/dev/null 2>&1 && pip install --user jupyterlab-data-mount && "
                 if len(new_cmd) >= 3 and new_cmd[0] == "sh" and new_cmd[1] == "-c":
                     existing_script = new_cmd[2]
-                    combined_script = (
-                        "pip install --user jupyterlab-data-mount && " + existing_script
-                    )
+                    combined_script = pip_cmd + existing_script
                     self.cmd = ["sh", "-c", combined_script]
                 else:
-                    combined_script = (
-                        "pip install --user jupyterlab-data-mount && "
-                        + " ".join(new_cmd)
-                    )
+                    combined_script = pip_check_prefix + " ".join(new_cmd)
                     self.cmd = ["sh", "-c", combined_script]
             else:
                 # data_mount_enabled is False — just set the command as is
