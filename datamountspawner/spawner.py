@@ -96,8 +96,44 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         help="""
         Multiline String to define the configuration used from the jupyter
         notebook server.
-        Used to confiugre the DataMount JupyterLab Extension.
+        Used to configure the DataMount JupyterLab Extension.
         Will be added to $JUPYTER_CONFIG_DIR/jupyter_notebook_config.py
+        """,
+    )
+
+    def data_mount_start_default(self):
+        version = (
+            f"=={self.data_mount_extension_version}"
+            if self.data_mount_extension_version
+            else ""
+        )
+        return """#!/bin/sh
+if command -v pip >/dev/null 2>&1; then
+    if [ -n "$VIRTUAL_ENV" ]; then
+        pip install jupyterlab-data-mount{datamount_version}
+    else
+        pip install --user jupyterlab-data-mount{datamount_version}
+    fi
+fi
+export JUPYTER_CONFIG_PATH="${JUPYTER_CONFIG_PATH:+$JUPYTER_CONFIG_PATH:}/mnt/datamount_start"
+command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || exec jupyterhub-singleuser
+""".replace(
+            "{version}", version
+        )
+
+    def get_data_mount_start(self):
+        if callable(self.data_mount_start):
+            return self.data_mount_start(self)
+        return self.data_mount_start
+
+    data_mount_start = Union(
+        trait_types=[Unicode(), Callable()],
+        default_value=data_mount_start_default,
+        allow_none=True,
+        config=True,
+        help="""
+        Multiline String to define the start procedure used for the jupyter
+        notebook server.
         """,
     )
 
@@ -170,6 +206,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
             ret = [
                 {"name": "data-mounts", "emptyDir": {}},
                 {"name": "mounts-config", "emptyDir": {}},
+                {"name": "mounts-start", "emptyDir": {}},
             ]
         return ret
 
@@ -204,23 +241,29 @@ class DataMountKubeSpawner(OrigKubeSpawner):
     )
 
     def get_default_volume_mounts(self):
+        ret = []
         if self.data_mount_enabled:
-            return {
-                "name": "data-mounts",
-                "mountPath": self.data_mount_path,
-                "mountPropagation": "HostToContainer",
-            }
-        else:
-            return None
+            ret.append(
+                {
+                    "name": "data-mounts",
+                    "mountPath": self.data_mount_path,
+                    "mountPropagation": "HostToContainer",
+                }
+            )
+            ret.append(
+                {
+                    "name": "mounts-start",
+                    "mountPath": "/mnt/datamount_start",
+                    "readOnly": True,
+                }
+            )
+
+        return ret
 
     @default("volume_mounts")
     def _default_volumes_mounts(self):
         """Provide default volumes when none are set."""
-        ret = self.get_default_volume_mounts()
-        if ret:
-            return [ret]
-        else:
-            return []
+        return self.get_default_volume_mounts()
 
     @observe("volume_mounts")
     def _ensure_default_volume_mounts(self, change):
@@ -250,7 +293,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
     )
 
     def _get_extra_data_mount_init_container(self):
-        if (self.init_mounts or self.logging_config) and self.data_mount_enabled:
+        if self.data_mount_enabled:
             try:
                 commands = ["apk add --no-cache coreutils"]
 
@@ -270,6 +313,27 @@ class DataMountKubeSpawner(OrigKubeSpawner):
                         f"echo '{logging_config_b64}' | base64 -d > /mnt/config/logging.json"
                     )
 
+                if self.data_mount_config:
+                    data_mount_config_b64 = base64.b64encode(
+                        self.data_mount_config.encode()
+                    ).decode()
+                    commands.append(
+                        f"echo '{data_mount_config_b64}' | base64 -d > /mnt/datamount_start/jupyter_notebook_config.py"
+                    )
+                    commands.append(
+                        f"echo '{data_mount_config_b64}' | base64 -d > /mnt/datamount_start/jupyter_server_config.py"
+                    )
+
+                data_mount_start_b64 = base64.b64encode(
+                    self.get_data_mount_start().encode()
+                ).decode()
+                commands.append(
+                    f"echo '{data_mount_start_b64}' | base64 -d > /mnt/datamount_start/datamount_start-singleuser.sh"
+                )
+                commands.append(
+                    "chmod +x /mnt/datamount_start/datamount_start-singleuser.sh"
+                )
+
                 return {
                     "image": "alpine:latest",
                     "imagePullPolicy": "Always",
@@ -278,7 +342,8 @@ class DataMountKubeSpawner(OrigKubeSpawner):
                         {
                             "name": "mounts-config",
                             "mountPath": "/mnt/config",
-                        }
+                        },
+                        {"name": "mounts-start", "mountPath": "/mnt/datamount_start"},
                     ],
                     "command": ["sh", "-c", " && ".join(commands)],
                 }
@@ -290,7 +355,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
 
     @default("init_containers")
     def _default_init_containers(self):
-        """Provide default volumes when none are set."""
+        """Provide default init containers when none are set."""
         ret = self._get_extra_data_mount_init_container()
         if ret:
             return [ret]
@@ -393,84 +458,7 @@ class DataMountKubeSpawner(OrigKubeSpawner):
     @default("cmd")
     def _default_cmd(self):
         """Set the default command if none is provided."""
-        base_cmd = ["sh", "-c"]
-
-        if not self.data_mount_enabled:
-            return base_cmd + [
-                """
-                if command -v start-singleuser.sh > /dev/null; then
-                    exec start-singleuser.sh;
-                else
-                    exec jupyterhub-singleuser;
-                fi
-                """
-            ]
-
-        version = (
-            f"=={self.data_mount_extension_version}"
-            if self.data_mount_extension_version
-            else ""
-        )
-
-        write_config_cmd = ""
-        if self.data_mount_config:
-            data_mount_config_b64 = base64.b64encode(
-                self.data_mount_config.encode()
-            ).decode()
-            write_config_cmd = f"""
-            mkdir -p /tmp/data_mount_config && \
-            echo '{data_mount_config_b64}' | base64 -d > /tmp/data_mount_config/jupyter_notebook_config.py && \
-            """
-        pip_cmd = "{ command -v pip >/dev/null 2>&1 && pip install --user jupyterlab-data-mount{version}; }; ".replace(
-            "{version}", version
-        )
-        full_cmd = f"""
-            {pip_cmd} \
-            {write_config_cmd}
-            export JUPYTER_CONFIG_PATH="${{JUPYTER_CONFIG_PATH:+$JUPYTER_CONFIG_PATH:}}/tmp/data_mount_config" && \
-            if command -v start-singleuser.sh > /dev/null; then \
-                exec start-singleuser.sh; \
-            else \
-                exec jupyterhub-singleuser; \
-            fi
-        """
-
-        return base_cmd + [full_cmd]
-
-    _setting_default_cmd = False
-
-    @observe("cmd")
-    def _ensure_pip_first(self, change):
-        """Ensure 'pip install --user jupyterlab-data-mount' is prepended only if data_mount_enabled is True."""
-        if self._setting_default_cmd:
-            return
-
-        self._setting_default_cmd = True
-        new_cmd = change["new"]
-
-        if new_cmd is None or not isinstance(new_cmd, list) or len(new_cmd) == 0:
-            self.cmd = self._default_cmd()
-        else:
-            if self.data_mount_enabled:
-                # Only prepend pip install if data_mount_enabled
-                version = (
-                    f"=={self.data_mount_extension_version}"
-                    if self.data_mount_extension_version
-                    else ""
-                )
-                pip_cmd = "{ command -v pip >/dev/null 2>&1 && pip install --user jupyterlab-data-mount{version}; }; ".replace(
-                    "{version}", version
-                )
-                if len(new_cmd) >= 3 and new_cmd[0] == "sh" and new_cmd[1] == "-c":
-                    existing_script = new_cmd[2]
-                    combined_script = pip_cmd + existing_script
-                    self.cmd = ["sh", "-c", combined_script]
-                else:
-                    combined_script = pip_cmd + " ".join(new_cmd)
-                    self.cmd = ["sh", "-c", combined_script]
-            else:
-                # data_mount_enabled is False — just set the command as is
-                self.cmd = new_cmd
+        return "/mnt/datamount_start/datamount_start-singleuser.sh"
 
 
 # Implementation with the same name as the original class
