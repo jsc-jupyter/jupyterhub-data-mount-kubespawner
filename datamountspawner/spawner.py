@@ -118,7 +118,7 @@ fi
 export JUPYTER_CONFIG_PATH="${JUPYTER_CONFIG_PATH:+$JUPYTER_CONFIG_PATH:}/mnt/datamount_start"
 command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || exec jupyterhub-singleuser
 """.replace(
-            "{version}", version
+            "{datamount_version}", version
         )
 
     def get_data_mount_start(self):
