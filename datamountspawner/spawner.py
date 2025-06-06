@@ -116,6 +116,7 @@ if command -v pip >/dev/null 2>&1; then
     fi
 fi
 export JUPYTER_CONFIG_PATH="${JUPYTER_CONFIG_PATH:+$JUPYTER_CONFIG_PATH:}/mnt/datamount_start"
+export JUPYTER_CONFIG_DIR="${JUPYTER_CONFIG_DIR:+$JUPYTER_CONFIG_DIR:}/mnt/datamount_start"
 command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || exec jupyterhub-singleuser
 """.replace(
             "{datamount_version}", version
