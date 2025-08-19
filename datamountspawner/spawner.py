@@ -29,6 +29,35 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         """,
     )
 
+    blocked_nfs_mounts = List(
+        default_value=[
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "127.0.0.0/8",
+            "169.254.0.0/16",
+        ],
+        config=True,
+        help="""
+        List of CIDR blocks for which NFS mounts are blocked.
+        Administrators can configure multiple CIDRs to prevent users
+        from mounting NFS shares from restricted networks.
+
+        Example::
+
+            c.KubeSpawner.blocked_nfs_mounts = [
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16",
+                "127.0.0.0/8",
+                "169.254.0.0/16"
+            ]
+
+        Any NFS mount request originating from an IP address within
+        these ranges will be denied.
+        """,
+    )
+
     templates = Union(
         trait_types=[List(), Callable()],
         default_value=[],
@@ -430,7 +459,11 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
                     {
                         "name": "NFS_ENABLED",
                         "value": "true" if self.enable_nfs_mounts else "false",
-                    }
+                    },
+                    {
+                        "name": "NFS_BLOCKED_MOUNTS",
+                        "value": ",".join(self.blocked_nfs_mounts),
+                    },
                 ],
                 "securityContext": {
                     "capabilities": {"add": ["SYS_ADMIN", "MKNOD", "SETFCAP"]},
