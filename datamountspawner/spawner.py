@@ -418,6 +418,12 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
                 "imagePullPolicy": "Always",
                 "name": "data-mounts",
                 "volumeMounts": volume_mounts,
+                "env": [
+                    {
+                        "name": "NFS_ENABLED",
+                        "value": "true" if "nfs" in self.get_templates() else "false",
+                    }
+                ],
                 "securityContext": {
                     "capabilities": {"add": ["SYS_ADMIN", "MKNOD", "SETFCAP"]},
                     "privileged": True,
