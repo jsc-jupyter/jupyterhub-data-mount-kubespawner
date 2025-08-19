@@ -21,6 +21,14 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         """,
     )
 
+    enable_nfs_mounts = Bool(
+        default_value=False,
+        config=True,
+        help="""
+        Whether NFS mounts should be allowed in the backend. When using NFS Userhomes, users might be able to mount all userhomes.
+        """,
+    )
+
     templates = Union(
         trait_types=[List(), Callable()],
         default_value=[],
@@ -421,7 +429,7 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
                 "env": [
                     {
                         "name": "NFS_ENABLED",
-                        "value": "true" if "nfs" in self.get_templates() else "false",
+                        "value": "true" if self.enable_nfs_mounts else "false",
                     }
                 ],
                 "securityContext": {
