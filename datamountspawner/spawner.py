@@ -258,6 +258,15 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
             new_volumes = change["new"]
 
             if self.data_mount_enabled:
+                if isinstance(new_volumes, list):
+                    try:
+                        new_volumes = {c["name"]: c for c in new_volumes}
+                    except:
+                        self.log.error(
+                            "Could not parse volumes list to dict, use empty dict instead"
+                        )
+                        new_volumes = {}
+
                 default_volumes = self.get_default_volumes()
                 if default_volumes:
                     for key, value in default_volumes.items():
@@ -300,11 +309,19 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
             new_volume_mounts = change["new"]
 
             if self.data_mount_enabled:
+                if isinstance(new_volume_mounts, list):
+                    try:
+                        new_volume_mounts = {c["name"]: c for c in new_volume_mounts}
+                    except:
+                        self.log.error(
+                            "Could not parse volume_mounts list to dict, use empty dict instead"
+                        )
+                        new_volume_mounts = {}
+
                 default_volume_mounts = self.get_default_volume_mounts()
-                if default_volume_mounts:
-                    for key, value in default_volume_mounts.items():
-                        if key not in new_volume_mounts.keys():
-                            new_volume_mounts[key] = value
+                for key, value in default_volume_mounts.items():
+                    if key not in new_volume_mounts.keys():
+                        new_volume_mounts[key] = value
 
             self.volume_mounts = new_volume_mounts
         except Exception:
@@ -359,53 +376,56 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
                 )
 
                 return {
-                    "image": "alpine:latest",
-                    "imagePullPolicy": "Always",
-                    "name": "mounts-config",
-                    "volumeMounts": [
-                        {
-                            "name": "dm-mounts-config",
-                            "mountPath": "/mnt/config",
-                        },
-                        {
-                            "name": "dm-mounts-start",
-                            "mountPath": "/mnt/datamount_start",
-                        },
-                    ],
-                    "command": ["sh", "-c", " && ".join(commands)],
+                    "mounts-config": {
+                        "image": "alpine:latest",
+                        "imagePullPolicy": "Always",
+                        "name": "mounts-config",
+                        "volumeMounts": [
+                            {
+                                "name": "dm-mounts-config",
+                                "mountPath": "/mnt/config",
+                            },
+                            {
+                                "name": "dm-mounts-start",
+                                "mountPath": "/mnt/datamount_start",
+                            },
+                        ],
+                        "command": ["sh", "-c", " && ".join(commands)],
+                    }
                 }
             except Exception as e:
                 self.log.exception("Could not set init Container")
-                return None
+                return {}
         else:
-            return None
+            return {}
 
     @default("init_containers")
     def _default_init_containers(self):
         """Provide default init containers when none are set."""
-        ret = self._get_extra_data_mount_init_container()
-        if ret:
-            return [ret]
-        else:
-            return []
+        return self._get_extra_data_mount_init_container()
 
     @observe("init_containers")
     def _ensure_default_init_containers(self, change):
         try:
             new_init_containers = change["new"]
 
-            if isinstance(new_init_containers, dict):
-                new_init_containers = [new_init_containers]
-
             if self.data_mount_enabled:
+                if isinstance(new_init_containers, list):
+                    try:
+                        new_init_containers = {
+                            c["name"]: c for c in new_init_containers
+                        }
+                    except:
+                        self.log.error(
+                            "Could not parse init_containers list to dict, use empty dict instead"
+                        )
+                        new_init_containers = {}
                 extra_data_mount_init_container = (
                     self._get_extra_data_mount_init_container()
                 )
-                if (
-                    extra_data_mount_init_container
-                    and extra_data_mount_init_container not in new_init_containers
-                ):
-                    new_init_containers.append(extra_data_mount_init_container)
+                for name, container in extra_data_mount_init_container.items():
+                    if name not in new_init_containers.keys():
+                        new_init_containers[name] = container
 
             self.init_containers = new_init_containers
         except Exception:
@@ -440,53 +460,56 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
                 )
 
             extra_data_mount_container = {
-                "image": self.data_mounts_image,
-                "imagePullPolicy": "Always",
-                "name": "data-mounts",
-                "volumeMounts": volume_mounts,
-                "env": [
-                    {
-                        "name": "NFS_ENABLED",
-                        "value": "true" if self.enable_nfs_mounts else "false",
+                "data-mounts": {
+                    "image": self.data_mounts_image,
+                    "imagePullPolicy": "Always",
+                    "name": "data-mounts",
+                    "volumeMounts": volume_mounts,
+                    "env": [
+                        {
+                            "name": "NFS_ENABLED",
+                            "value": "true" if self.enable_nfs_mounts else "false",
+                        },
+                        {
+                            "name": "NFS_BLOCKED_MOUNTS",
+                            "value": ",".join(self.blocked_nfs_mounts),
+                        },
+                    ],
+                    "securityContext": {
+                        "capabilities": {"add": ["SYS_ADMIN", "MKNOD", "SETFCAP"]},
+                        "privileged": True,
+                        "allowPrivilegeEscalation": True,
                     },
-                    {
-                        "name": "NFS_BLOCKED_MOUNTS",
-                        "value": ",".join(self.blocked_nfs_mounts),
-                    },
-                ],
-                "securityContext": {
-                    "capabilities": {"add": ["SYS_ADMIN", "MKNOD", "SETFCAP"]},
-                    "privileged": True,
-                    "allowPrivilegeEscalation": True,
-                },
+                }
             }
         return extra_data_mount_container
 
     @default("extra_containers")
     def _default_extra_containers(self):
         """Provide default volumes when none are set."""
-        ret = self._get_extra_data_mount_container()
-        if ret:
-            return [ret]
-        else:
-            return []
+        return self._get_extra_data_mount_container()
 
     @observe("extra_containers")
     def _ensure_default_extra_containers(self, change):
         try:
             new_extra_containers = change["new"]
 
-            if isinstance(new_extra_containers, dict):
-                new_extra_containers = [new_extra_containers]
-
             if self.data_mount_enabled:
+                if isinstance(new_extra_containers, list):
+                    try:
+                        new_extra_containers = {
+                            c["name"]: c for c in new_extra_containers
+                        }
+                    except:
+                        self.log.error(
+                            "Could not parse extra_containers list to dict, use empty dict instead"
+                        )
+                        new_extra_containers = {}
                 extra_data_mount_container = self._get_extra_data_mount_container()
 
-                if (
-                    extra_data_mount_container
-                    and extra_data_mount_container not in new_extra_containers
-                ):
-                    new_extra_containers.append(extra_data_mount_container)
+                for name, container in extra_data_mount_container.items():
+                    if name not in new_extra_containers.keys():
+                        new_extra_containers[name] = container
 
             self.extra_containers = new_extra_containers
         except Exception:
