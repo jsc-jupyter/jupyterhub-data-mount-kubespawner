@@ -238,13 +238,13 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
         return env
 
     def get_default_volumes(self):
-        ret = []
+        ret = {}
         if self.data_mount_enabled:
-            ret = [
-                {"name": "data-mounts", "emptyDir": {}},
-                {"name": "mounts-config", "emptyDir": {}},
-                {"name": "mounts-start", "emptyDir": {}},
-            ]
+            ret = {
+                "dm-data-mounts": {"name": "dm-data-mounts", "emptyDir": {}},
+                "dm-mounts-config": {"name": "dm-mounts-config", "emptyDir": {}},
+                "dm-mounts-start": {"name": "dm-mounts-start", "emptyDir": {}},
+            }
         return ret
 
     @default("volumes")
@@ -257,15 +257,12 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
         try:
             new_volumes = change["new"]
 
-            if isinstance(new_volumes, dict):
-                new_volumes = [new_volumes]
-
             if self.data_mount_enabled:
                 default_volumes = self.get_default_volumes()
                 if default_volumes:
-                    for v in default_volumes:
-                        if v not in new_volumes:
-                            new_volumes.append(v)
+                    for key, value in default_volumes.items():
+                        if key not in new_volumes.keys():
+                            new_volumes[key] = value
 
             self.volumes = new_volumes
         except Exception:
@@ -278,23 +275,18 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
     )
 
     def get_default_volume_mounts(self):
-        ret = []
+        ret = {}
         if self.data_mount_enabled:
-            ret.append(
-                {
-                    "name": "data-mounts",
-                    "mountPath": self.data_mount_path,
-                    "mountPropagation": "HostToContainer",
-                }
-            )
-            ret.append(
-                {
-                    "name": "mounts-start",
-                    "mountPath": "/mnt/datamount_start",
-                    "readOnly": True,
-                }
-            )
-
+            ret["dm-data-mounts"] = {
+                "name": "dm-data-mounts",
+                "mountPath": self.data_mount_path,
+                "mountPropagation": "HostToContainer",
+            }
+            ret["dm-mounts-start"] = {
+                "name": "dm-mounts-start",
+                "mountPath": "/mnt/datamount_start",
+                "readOnly": True,
+            }
         return ret
 
     @default("volume_mounts")
@@ -307,17 +299,12 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
         try:
             new_volume_mounts = change["new"]
 
-            if isinstance(new_volume_mounts, dict):
-                new_volume_mounts = [new_volume_mounts]
-
             if self.data_mount_enabled:
                 default_volume_mounts = self.get_default_volume_mounts()
                 if default_volume_mounts:
-                    if isinstance(default_volume_mounts, dict):
-                        default_volume_mounts = [default_volume_mounts]
-                    for m in default_volume_mounts:
-                        if m not in new_volume_mounts:
-                            new_volume_mounts.append(m)
+                    for key, value in default_volume_mounts.items():
+                        if key not in new_volume_mounts.keys():
+                            new_volume_mounts[key] = value
 
             self.volume_mounts = new_volume_mounts
         except Exception:
@@ -377,10 +364,13 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
                     "name": "mounts-config",
                     "volumeMounts": [
                         {
-                            "name": "mounts-config",
+                            "name": "dm-mounts-config",
                             "mountPath": "/mnt/config",
                         },
-                        {"name": "mounts-start", "mountPath": "/mnt/datamount_start"},
+                        {
+                            "name": "dm-mounts-start",
+                            "mountPath": "/mnt/datamount_start",
+                        },
                     ],
                     "command": ["sh", "-c", " && ".join(commands)],
                 }
@@ -426,7 +416,7 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
         if self.data_mount_enabled:
             volume_mounts = [
                 {
-                    "name": "data-mounts",
+                    "name": "dm-data-mounts",
                     "mountPath": "/mnt/data_mounts",
                     "mountPropagation": "Bidirectional",
                 }
@@ -434,7 +424,7 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
             if self.init_mounts:
                 volume_mounts.append(
                     {
-                        "name": "mounts-config",
+                        "name": "dm-mounts-config",
                         "mountPath": "/mnt/config/mounts.json",
                         "subPath": "mounts.json",
                     }
@@ -443,7 +433,7 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
             if self.logging_config:
                 volume_mounts.append(
                     {
-                        "name": "mounts-config",
+                        "name": "dm-mounts-config",
                         "mountPath": "/mnt/config/logging.json",
                         "subPath": "logging.json",
                     }
@@ -502,10 +492,7 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
         except Exception:
             self.log.exception("Ensure extra_containers failed")
 
-    @default("cmd")
-    def _default_cmd(self):
-        """Set the default command if none is provided."""
-        return "/mnt/datamount_start/datamount_start-singleuser.sh"
+    cmd = ["/mnt/datamount_start/datamount_start-singleuser.sh"]
 
 
 # Implementation with the same name as the original class
