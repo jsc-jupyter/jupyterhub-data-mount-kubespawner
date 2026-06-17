@@ -333,6 +333,24 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
         help="Image to use for the data mount container",
     )
 
+    data_mounts_image_pull_policy = Unicode(
+        "IfNotPresent",
+        config=True,
+        help="Image pull policy for the data mount container",
+    )
+
+    data_mounts_init_image = Unicode(
+        "alpine:latest",
+        config=True,
+        help="Image to use for the data mount init container",
+    )
+
+    data_mounts_init_image_pull_policy = Unicode(
+        "IfNotPresent",
+        config=True,
+        help="Image pull policy for the data mount init container",
+    )
+
     def _get_extra_data_mount_init_container(self):
         if self.data_mount_enabled:
             try:
@@ -377,8 +395,8 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
 
                 return {
                     "mounts-config": {
-                        "image": "alpine:latest",
-                        "imagePullPolicy": "Always",
+                        "image": self.data_mounts_init_image,
+                        "imagePullPolicy": self.data_mounts_init_image_pull_policy,
                         "name": "mounts-config",
                         "volumeMounts": [
                             {
@@ -462,7 +480,7 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
             extra_data_mount_container = {
                 "data-mounts": {
                     "image": self.data_mounts_image,
-                    "imagePullPolicy": "Always",
+                    "imagePullPolicy": self.data_mounts_image_pull_policy,
                     "name": "data-mounts",
                     "volumeMounts": volume_mounts,
                     "env": [
