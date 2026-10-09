@@ -21,6 +21,14 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         """,
     )
 
+    init_container_apk_add_coreutils = Bool(
+        default_value=True,
+        config=True,
+        help="""
+        Whether apk add --no-cache coreutils should be executed in the init container
+        """,
+    )
+
     enable_nfs_mounts = Bool(
         default_value=False,
         config=True,
@@ -354,7 +362,9 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
     def _get_extra_data_mount_init_container(self):
         if self.data_mount_enabled:
             try:
-                commands = ["apk add --no-cache coreutils"]
+                commands = []
+                if self.init_container_apk_add_coreutils:
+                    commands.append("apk add --no-cache coreutils")
 
                 if self.init_mounts:
                     mounts_b64 = base64.b64encode(
