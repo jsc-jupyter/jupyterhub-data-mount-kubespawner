@@ -376,6 +376,9 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
         if self.data_mount_enabled:
             try:
                 commands = []
+                commands.append(
+                    "mkdir -p /mnt/data_mounts && chown root:root /mnt/data_mounts && chmod 0755 /mnt/data_mounts"
+                )
                 if self.init_container_apk_add_coreutils:
                     commands.append("apk add --no-cache coreutils")
 
@@ -422,6 +425,10 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
                         "imagePullPolicy": self.data_mounts_init_image_pull_policy,
                         "name": "mounts-config",
                         "volumeMounts": [
+                            {
+                                "name": "dm-data-mounts",
+                                "mountPath": "/mnt/data_mounts",
+                            },
                             {
                                 "name": "dm-mounts-config",
                                 "mountPath": "/mnt/config",
