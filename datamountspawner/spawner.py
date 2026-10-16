@@ -11,6 +11,16 @@ from traitlets import observe
 from traitlets import Unicode
 from traitlets import Union
 
+DEFAULT_DATA_MOUNT_TEMPLATES = [
+    "uftp",
+    "b2drop",
+    "aws",
+    "s3",
+    "webdav",
+    "nfs",
+    "generic",
+]
+
 
 class DataMountKubeSpawner(OrigKubeSpawner):
     data_mount_enabled = Bool(
@@ -79,6 +89,9 @@ class DataMountKubeSpawner(OrigKubeSpawner):
         if callable(self.templates):
             return self.templates(self)
         return self.templates
+
+    def _get_template_names(self):
+        return self.get_templates() or DEFAULT_DATA_MOUNT_TEMPLATES
 
     init_mounts = List(
         [],
@@ -240,9 +253,9 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
         if self.data_mount_enabled:
             env["JUPYTERLAB_DATA_MOUNT_ENABLED"] = str(self.data_mount_enabled)
             env["JUPYTERLAB_DATA_MOUNT_DIR"] = self.data_mount_path
-            templates = self.get_templates()
-            if templates:
-                env["JUPYTERLAB_DATA_MOUNT_TEMPLATES"] = ",".join(templates)
+            env["JUPYTERLAB_DATA_MOUNT_TEMPLATES"] = ",".join(
+                self._get_template_names()
+            )
         return env
 
     def get_default_volumes(self):
@@ -363,6 +376,9 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
         if self.data_mount_enabled:
             try:
                 commands = []
+                commands.append(
+                    "mkdir -p /mnt/data_mounts && chown root:root /mnt/data_mounts && chmod 0755 /mnt/data_mounts"
+                )
                 if self.init_container_apk_add_coreutils:
                     commands.append("apk add --no-cache coreutils")
 
@@ -409,6 +425,10 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
                         "imagePullPolicy": self.data_mounts_init_image_pull_policy,
                         "name": "mounts-config",
                         "volumeMounts": [
+                            {
+                                "name": "dm-data-mounts",
+                                "mountPath": "/mnt/data_mounts",
+                            },
                             {
                                 "name": "dm-mounts-config",
                                 "mountPath": "/mnt/config",
@@ -462,6 +482,7 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
     def _get_extra_data_mount_container(self):
         extra_data_mount_container = {}
         if self.data_mount_enabled:
+            templates = self._get_template_names()
             volume_mounts = [
                 {
                     "name": "dm-data-mounts",
@@ -501,6 +522,10 @@ command -v start-singleuser.sh >/dev/null 2>&1 && exec start-singleuser.sh || ex
                         {
                             "name": "NFS_BLOCKED_MOUNTS",
                             "value": ",".join(self.blocked_nfs_mounts),
+                        },
+                        {
+                            "name": "JUPYTERLAB_DATA_MOUNT_TEMPLATES",
+                            "value": ",".join(templates),
                         },
                     ],
                     "securityContext": {
